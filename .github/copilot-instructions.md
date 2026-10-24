@@ -1,0 +1,9 @@
+- [x] Verify that this file exists.
+- [x] Clarify requirements: React + TypeScript, Vite, Express, local file-backed SQLite, contestant dropdown voting, winner tally.
+- [x] Scaffold the project.
+- [x] Customize frontend and API for the Halloween ballot.
+- [x] Required extensions: none.
+- [x] Compile and validate the project — `npm run build` and `npm run lint` pass.
+- [x] Create a VS Code run task — “Dev: Halloween Costume Ballot” runs `npm run dev`.
+- [ ] Launch only after user confirmation.
+- [x] Verify documentation is complete — README includes setup, use, production, and reset guidance.
