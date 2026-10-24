@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# halloween
-halloween costume voting application
-=======
 # Moonlight — Halloween Costume Ballot
 
 A small React + TypeScript app for managing a Halloween costume lineup, collecting votes, and revealing the winner (or a tie) when the ballot closes. Express stores all event data in a local SQLite database file.
@@ -44,4 +40,3 @@ Run `npm run build`, then `npm start`. Express serves the built frontend and API
 ## Reset for another event
 
 Stop the server and delete `data/halloween.sqlite`. The next server start creates a fresh lineup and ballot. The SQLite file is ignored by Git so names and votes remain local.
->>>>>>> bb15a7c (initial code commit)
