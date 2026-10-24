@@ -32,7 +32,8 @@ database.run(`
   );
   CREATE TABLE IF NOT EXISTS event_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    is_complete INTEGER NOT NULL DEFAULT 0
+    is_complete INTEGER NOT NULL DEFAULT 0,
+    allow_multiple_votes INTEGER NOT NULL DEFAULT 0
   );
   INSERT OR IGNORE INTO event_state (id, is_complete) VALUES (1, 0);
 `)
@@ -41,7 +42,11 @@ const voteColumns = database.exec('PRAGMA table_info(votes)')[0]?.values.map((co
 if (!voteColumns.includes('voter_id')) {
   database.run('ALTER TABLE votes ADD COLUMN voter_id TEXT')
 }
-database.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_voter_id ON votes(voter_id) WHERE voter_id IS NOT NULL')
+const eventStateColumns = database.exec('PRAGMA table_info(event_state)')[0]?.values.map((column) => column[1]) ?? []
+if (!eventStateColumns.includes('allow_multiple_votes')) {
+  database.run('ALTER TABLE event_state ADD COLUMN allow_multiple_votes INTEGER NOT NULL DEFAULT 0')
+}
+database.run('DROP INDEX IF EXISTS idx_votes_voter_id')
 
 function saveDatabase() {
   writeFileSync(databasePath, Buffer.from(database.export()))
@@ -56,7 +61,7 @@ function rows(sql, params = []) {
 }
 
 function getEvent() {
-  const [{ is_complete: isComplete }] = rows('SELECT is_complete FROM event_state WHERE id = 1')
+  const [{ is_complete: isComplete, allow_multiple_votes: allowMultipleVotes }] = rows('SELECT is_complete, allow_multiple_votes FROM event_state WHERE id = 1')
   const contestants = rows(`
     SELECT contestants.id, contestants.name, COUNT(votes.id) AS votes
     FROM contestants
@@ -73,6 +78,7 @@ function getEvent() {
 
   return {
     complete,
+    allowMultipleVotes: Boolean(allowMultipleVotes),
     contestants: contestants.map(({ votes, ...contestant }) => ({
       ...contestant,
       ...(complete ? { votes } : {}),
@@ -86,10 +92,20 @@ app.use(express.json())
 
 app.get('/api/event', (_request, response) => {
   const voterId = typeof _request.query.voterId === 'string' ? _request.query.voterId : ''
+  const event = getEvent()
   response.json({
-    ...getEvent(),
-    ...(voterId ? { voted: rows('SELECT id FROM votes WHERE voter_id = ?', [voterId]).length > 0 } : {}),
+    ...event,
+    ...(voterId ? { voted: !event.allowMultipleVotes && rows('SELECT id FROM votes WHERE voter_id = ?', [voterId]).length > 0 } : {}),
   })
+})
+
+app.post('/api/voting-settings', (request, response) => {
+  if (typeof request.body?.allowMultipleVotes !== 'boolean') {
+    return response.status(400).json({ error: 'Choose whether repeat votes are allowed.' })
+  }
+  database.run('UPDATE event_state SET allow_multiple_votes = ? WHERE id = 1', [request.body.allowMultipleVotes ? 1 : 0])
+  saveDatabase()
+  return response.json(getEvent())
 })
 
 app.post('/api/contestants', (request, response) => {
@@ -139,7 +155,8 @@ app.post('/api/votes', (request, response) => {
   if (rows('SELECT is_complete FROM event_state WHERE id = 1')[0].is_complete) {
     return response.status(409).json({ error: 'Voting is closed.' })
   }
-  if (rows('SELECT id FROM votes WHERE voter_id = ?', [voterId]).length > 0) {
+  const [{ allow_multiple_votes: allowMultipleVotes }] = rows('SELECT allow_multiple_votes FROM event_state WHERE id = 1')
+  if (!allowMultipleVotes && rows('SELECT id FROM votes WHERE voter_id = ?', [voterId]).length > 0) {
     return response.status(409).json({ error: 'This browser has already voted.' })
   }
   if (rows('SELECT id FROM contestants WHERE id = ?', [contestantId]).length === 0) {
@@ -148,7 +165,11 @@ app.post('/api/votes', (request, response) => {
 
   database.run('INSERT INTO votes (contestant_id, voter_id) VALUES (?, ?)', [contestantId, voterId])
   saveDatabase()
-  return response.status(201).json({ ok: true })
+  return response.status(201).json({
+    ok: true,
+    ...getEvent(),
+    voted: !allowMultipleVotes,
+  })
 })
 
 app.post('/api/complete', (_request, response) => {
@@ -167,7 +188,7 @@ app.post('/api/reset', (_request, response) => {
   database.run('DELETE FROM votes')
   database.run('DELETE FROM contestants')
   database.run('UPDATE sqlite_sequence SET seq = 0 WHERE name IN (\'votes\', \'contestants\')')
-  database.run('UPDATE event_state SET is_complete = 0 WHERE id = 1')
+  database.run('UPDATE event_state SET is_complete = 0, allow_multiple_votes = 0 WHERE id = 1')
   saveDatabase()
   return response.json(getEvent())
 })

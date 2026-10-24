@@ -31,7 +31,9 @@ After closing, use **Reopen voting** on `/admin` if you need to accept more ball
 
 Use **Clear all data** at the bottom of `/admin` to remove every contestant and vote and reopen the ballot for a fresh event. This action cannot be undone.
 
-The app allows one vote per browser profile for the current event. A persistent browser ID is checked and recorded by the API, so refreshing the page or reopening the ballot does not allow another vote. **Clear all data** removes voter records too, so the same browser can vote in the next event. This is a casual-event safeguard, not verified identity: people can use another browser/device or clear browser storage. IP blocking is intentionally not used because people on shared networks may appear to have the same public IP. The admin page also has no authentication; keep it on a trusted device/network because anyone who can access `/admin` can manage and close the ballot.
+The **Repeat voting** switch on `/admin` controls browser-ID enforcement. When disabled, each browser can vote once. When enabled, a voter can submit multiple votes from the same browser. Voter pages refresh the setting automatically; the option is saved with the event, and clearing all data resets it to disabled.
+
+When repeat voting is disabled, a persistent browser ID is checked and recorded by the API. This is a casual-event safeguard, not verified identity: people can use another browser/device or clear browser storage. IP blocking is intentionally not used because people on shared networks may appear to have the same public IP. The admin page also has no authentication; keep it on a trusted device/network because anyone who can access `/admin` can manage and close the ballot.
 
 ## Production build
 

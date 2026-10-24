@@ -5,6 +5,7 @@ import './App.css'
 type Contestant = { id: number; name: string; votes?: number }
 type EventData = {
   complete: boolean
+  allowMultipleVotes: boolean
   contestants: Contestant[]
   totalVotes?: number
   winners?: Contestant[]
@@ -46,12 +47,23 @@ function App() {
   const [hasVoted, setHasVoted] = useState(false)
 
   useEffect(() => {
-    request<EventData>(`/api/event?voterId=${encodeURIComponent(voterId)}`)
-      .then((data) => {
+    let active = true
+    const refreshEvent = async (showError = false) => {
+      try {
+        const data = await request<EventData>(`/api/event?voterId=${encodeURIComponent(voterId)}`)
+        if (!active) return
         setEvent(data)
         setHasVoted(Boolean(data.voted))
-      })
-      .catch((cause: Error) => setError(cause.message))
+      } catch (cause) {
+        if (showError && active) setError(cause instanceof Error ? cause.message : 'Could not load the ballot.')
+      }
+    }
+    void refreshEvent(true)
+    const refreshTimer = window.setInterval(() => void refreshEvent(), 4000)
+    return () => {
+      active = false
+      window.clearInterval(refreshTimer)
+    }
   }, [voterId])
 
   async function addContestant(submission: FormEvent<HTMLFormElement>) {
@@ -79,15 +91,40 @@ function App() {
     setError('')
     setBusy(true)
     try {
-      await request('/api/votes', {
+      const data = await request<EventData & { ok: boolean; voted: boolean }>('/api/votes', {
         method: 'POST',
         body: JSON.stringify({ contestantId: Number(selectedId), voterId }),
       })
       setSelectedId('')
-      setHasVoted(true)
-      setMessage('Your vote has been tucked safely into the ballot box.')
+      setEvent(data)
+      setHasVoted(data.voted)
+      setMessage(data.allowMultipleVotes
+        ? 'Your vote has been recorded. You can vote again while repeat voting is enabled.'
+        : 'Your vote has been tucked safely into the ballot box.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not cast your vote.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function updateRepeatVoting(allowMultipleVotes: boolean) {
+    setMessage('')
+    setError('')
+    setBusy(true)
+    try {
+      await request<EventData>('/api/voting-settings', {
+        method: 'POST',
+        body: JSON.stringify({ allowMultipleVotes }),
+      })
+      const data = await request<EventData>(`/api/event?voterId=${encodeURIComponent(voterId)}`)
+      setEvent(data)
+      setHasVoted(Boolean(data.voted))
+      setMessage(allowMultipleVotes
+        ? 'Repeat voting is enabled. A browser can submit multiple votes.'
+        : 'Repeat voting is disabled. Each browser can vote once.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not update the voting setting.')
     } finally {
       setBusy(false)
     }
@@ -205,6 +242,14 @@ function App() {
                   )}
                   <p>{event.totalVotes ?? 0} {(event.totalVotes ?? 0) === 1 ? 'ballot' : 'ballots'} counted</p>
                 </div>
+                <div className="admin-tally">
+                  <h3>Full tally</h3>
+                  {[...event.contestants].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.name.localeCompare(b.name)).map((contestant) => (
+                    <div className="admin-tally-row" key={contestant.id}>
+                      <span>{contestant.name}</span><strong>{contestant.votes ?? 0}</strong>
+                    </div>
+                  ))}
+                </div>
                 <div className="admin-closed-actions">
                   <a className="button quiet admin-result-link" href="/">View full tally <span>↗</span></a>
                   <button className="button primary" type="button" onClick={reopenVoting} disabled={busy}>Reopen voting <span>↻</span></button>
@@ -214,6 +259,13 @@ function App() {
               <button className="button primary" type="button" onClick={completeVoting} disabled={busy || event.contestants.length === 0}>End voting <span>→</span></button>
             )}
             {!event.complete && event.contestants.length === 0 && <p className="admin-hint">Add at least one contestant before closing the ballot.</p>}
+          </article>
+          <article className="policy-card">
+            <div className="policy-copy"><span className="section-kicker">VOTING ACCESS</span><h3>Repeat voting</h3><p>{event.allowMultipleVotes ? 'A browser can submit multiple votes while the ballot is open.' : 'Each browser can submit one vote until the event is reset.'}</p></div>
+            <label className="toggle-control" htmlFor="repeat-voting-toggle">
+              <span>{event.allowMultipleVotes ? 'Enabled' : 'Disabled'}</span>
+              <input id="repeat-voting-toggle" type="checkbox" role="switch" checked={event.allowMultipleVotes} onChange={(change) => updateRepeatVoting(change.target.checked)} disabled={busy} />
+            </label>
           </article>
           <article className="reset-card">
             <div><span className="section-kicker">START OVER</span><p>Clear every contestant and vote, then reopen the ballot for a new event.</p></div>
@@ -240,7 +292,7 @@ function App() {
           <p className="total-votes">{event.totalVotes} {event.totalVotes === 1 ? 'ballot' : 'ballots'} counted</p>
           <div className="results-list">
             <h3>Full tally</h3>
-            {event.contestants.map((contestant) => (
+            {[...event.contestants].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.name.localeCompare(b.name)).map((contestant) => (
               <div className="tally-row" key={contestant.id}>
                 <span>{contestant.name}</span><strong>{contestant.votes}</strong>
               </div>
@@ -261,7 +313,7 @@ function App() {
               </select>
               <button className="button primary" type="submit" disabled={busy || !selectedId}>Drop your vote <span>↗</span></button>
             </form>}
-            <div className="privacy-note"><span>✳</span> {hasVoted ? 'One vote per browser until the ballot is reset.' : 'The tally stays secret until the ballot closes.'}</div>
+            <div className="privacy-note"><span>✳</span> {event.allowMultipleVotes ? 'Repeat voting is enabled for this event.' : hasVoted ? 'One vote per browser until the ballot is reset.' : 'The tally stays secret until the ballot closes.'}</div>
           </article>
         </section>
       )}
